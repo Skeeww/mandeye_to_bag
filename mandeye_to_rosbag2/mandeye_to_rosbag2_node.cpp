@@ -1,72 +1,110 @@
-#include <map>
-#include <vector>
-
-#include "LasLoader.h"
-#include <sensor_msgs/msg/imu.hpp>
-
-#include "LasLoader.h"
-#include "common/ImuLoader.h"
-#include "livox_ros_driver2/msg/custom_msg.hpp"
-#include "rclcpp/serialization.hpp"
-#include "ros2_utils.h"
-#include "rosbag2_cpp/writer.hpp"
 #include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <map>
 #include <numeric>
 #include <optional>
-#include <rosbag2_cpp/converter_options.hpp>
-#include <rosbag2_cpp/readers/sequential_reader.hpp>
-#include <rosbag2_cpp/storage_options.hpp>
+#include <vector>
+
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
-#include <vector>
+
+#include <rosbag2_cpp/converter_options.hpp>
+#include <rosbag2_cpp/readers/sequential_reader.hpp>
+#include <rosbag2_cpp/storage_options.hpp>
+
+#include "common/ImuLoader.h"
+#include "livox_ros_driver2/msg/custom_msg.hpp"
+#include "rclcpp/serialization.hpp"
+#include "rosbag2_cpp/writer.hpp"
+
+#include "LasLoader.h"
+#include "ros2_utils.h"
+
+void printHelp(char* entrypoint)
+{
+    std::cout << "Usage: " << entrypoint << " <directory> <output_bag>" << std::endl;
+    std::cout << " Options are:" << std::endl;
+    std::cout << "  --lines <number of lines> (default 8)" << std::endl;
+    std::cout << "  --type <pointcloud2/livox> default is pointcloud2" << std::endl;
+    std::cout << "  --points <number of points> (default 19968)" << std::endl;
+}
+
+void processImu(std::vector<std::string> files_imu, rosbag2_cpp::Writer* bag)
+{
+    for (const auto& imu_fn : files_imu)
+    {
+        auto data = mandeye::load_imu(imu_fn, 0);
+        std::cout << "file '" << imu_fn << "'" << std::endl;
+        for (const auto& [ts, ang, acc] : data)
+        {
+            if (ts == 0)
+                continue;
+
+            sensor_msgs::msg::Imu imu;
+
+            imu.header.frame_id = "livox";
+            imu.header.stamp = GetRosTimeSecond(ts);
+
+            imu.angular_velocity.x = ang[0];
+            imu.angular_velocity.y = ang[1];
+            imu.angular_velocity.z = ang[2];
+
+            imu.linear_acceleration.x = acc[0];
+            imu.linear_acceleration.y = acc[1];
+            imu.linear_acceleration.z = acc[2];
+
+            bag->write(imu, "/livox/imu", imu.header.stamp);
+        }
+    }
+}
+
+void processPointcloud2()
+{
+}
+
+void processLivox()
+{
+}
 
 int main(int argc, char** argv)
 {
     // parse command line arguments for directory to process
     if (argc < 3)
     {
-        std::cout << "Usage: " << argv[0] << " <directory> <output_bag>" << std::endl;
-        std::cout << " Options are:" << std::endl;
-        std::cout << "  --lines <number of lines> (default 8)" << std::endl;
-        std::cout << "  --type <pointcloud2/livox> default is pointcloud2" << std::endl;
-        std::cout << "  --points <number of points> (default 19968)" << std::endl;
+        printHelp(argv[0]);
         return 1;
     }
 
-    unsigned int number_of_lines = 40; // default for mid360
-    unsigned int number_of_points = 20000;
+    std::uint16_t number_of_lines = 40;
+    std::uint16_t number_of_points = 20000;
     std::string messageType = "pointcloud2";
-    const std::string directory = argv[1];
-    const std::string output_bag = argv[2];
+    std::string directory = argv[1];
+    std::string output_bag = argv[2];
+
     for (int i = 1; i < argc; i++)
     {
         std::string arg = argv[i];
-        if (arg.size() > 1 && arg[0] == '-' && arg[1] == '-')
+        if (arg.size() < 2 || arg[0] != '-' || arg[1] != '-')
+            continue;
+        if (arg == "--lines")
         {
-            if (arg == "--lines")
-            {
-                number_of_lines = std::stoi(argv[i + 1]);
-                i++;
-            }
-            else if (arg == "--type")
-            {
-                messageType = std::string(argv[i + 1]);
-                i++;
-            }
-            else if (arg == "--points")
-            {
-                number_of_points = std::stoi(argv[i + 1]);
-                i++;
-            }
-            else
-            {
-                std::cout << "Unknown option: " << arg << std::endl;
-                return 1;
-            }
+            number_of_lines = std::stoi(argv[i + 1]);
+        }
+        else if (arg == "--points")
+        {
+            number_of_points = std::stoi(argv[i + 1]);
+        }
+        else if (arg == "--type")
+        {
+            messageType = std::string(argv[i + 1]);
+        }
+        else
+        {
+            std::cout << "Unknown option: " << arg << std::endl;
+            printHelp(argv[0]);
+            return 1;
         }
     }
 
@@ -79,13 +117,14 @@ int main(int argc, char** argv)
     std::vector<std::string> files_laz;
     for (const auto& entry : std::filesystem::directory_iterator(directory))
     {
-        if (entry.path().extension() == ".csv")
+        auto extension = entry.path().extension();
+        if (extension == ".csv")
         {
             files_imu.push_back(entry.path());
         }
-        else if (entry.path().extension() == ".laz")
+        else if (extension == ".laz")
         {
-            const std::string fn = entry.path().filename().string();
+            auto fn = entry.path().filename().string();
             if (fn.find("lidar") != std::string::npos)
                 files_laz.push_back(entry.path());
         }
@@ -97,27 +136,8 @@ int main(int argc, char** argv)
     rosbag2_cpp::Writer bag;
     bag.open(output_bag);
 
-    for (const auto& imu_fn : files_imu)
-    {
-        auto data = mandeye::load_imu(imu_fn, 0);
-        for (const auto& [ts, ang, acc] : data)
-        {
-            if (ts == 0)
-                continue;
-            sensor_msgs::msg::Imu imu;
-            imu.header.frame_id = "livox";
-            imu.header.stamp = GetRosTimeSecond(ts);
-            imu.angular_velocity.x = ang[0];
-            imu.angular_velocity.y = ang[1];
-            imu.angular_velocity.z = ang[2];
+    std::thread imu_thread(processImu, files_imu, &bag);
 
-            imu.linear_acceleration.x = acc[0];
-            imu.linear_acceleration.y = acc[1];
-            imu.linear_acceleration.z = acc[2];
-
-            bag.write(imu, "/livox/imu", imu.header.stamp);
-        }
-    }
     if (messageType == "pointcloud2")
     {
         std::vector<mandeye::Point> points;
@@ -162,8 +182,9 @@ int main(int argc, char** argv)
             auto points = mandeye::load(pcName);
             for (auto p : points)
             {
-                if (!p.timestamp) continue;
-                
+                if (!p.timestamp)
+                    continue;
+
                 if (!custom_msg.points.size())
                 {
                     custom_msg.header.stamp = GetRosTimeSecond(p.timestamp);
@@ -192,6 +213,8 @@ int main(int argc, char** argv)
             }
         }
     }
+
+    imu_thread.join();
 
     bag.close();
     return 0;

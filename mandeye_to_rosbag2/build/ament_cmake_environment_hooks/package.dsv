@@ -1,0 +1,4 @@
+source;share/mandeye_to_rosbag2/local_setup.bash
+source;share/mandeye_to_rosbag2/local_setup.dsv
+source;share/mandeye_to_rosbag2/local_setup.sh
+source;share/mandeye_to_rosbag2/local_setup.zsh

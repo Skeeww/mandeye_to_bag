@@ -5,6 +5,8 @@
 #include <sensor_msgs/msg/imu.hpp>
 
 #include "LasLoader.h"
+#include "common/ImuLoader.h"
+#include "livox_ros_driver2/msg/custom_msg.hpp"
 #include "rclcpp/serialization.hpp"
 #include "ros2_utils.h"
 #include "rosbag2_cpp/writer.hpp"
@@ -21,9 +23,6 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <vector>
-#include "common/ImuLoader.h"
-const int num_point = 19968;
-const int line_count = 4;
 
 int main(int argc, char** argv)
 {
@@ -34,10 +33,12 @@ int main(int argc, char** argv)
         std::cout << " Options are:" << std::endl;
         std::cout << "  --lines <number of lines> (default 8)" << std::endl;
         std::cout << "  --type <pointcloud2/livox> default is pointcloud2" << std::endl;
+        std::cout << "  --points <number of points> (default 19968)" << std::endl;
         return 1;
     }
 
-    int number_of_lines = 8; // default for mid360
+    unsigned int number_of_lines = 40; // default for mid360
+    unsigned int number_of_points = 20000;
     std::string messageType = "pointcloud2";
     const std::string directory = argv[1];
     const std::string output_bag = argv[2];
@@ -56,6 +57,11 @@ int main(int argc, char** argv)
                 messageType = std::string(argv[i + 1]);
                 i++;
             }
+            else if (arg == "--points")
+            {
+                number_of_points = std::stoi(argv[i + 1]);
+                i++;
+            }
             else
             {
                 std::cout << "Unknown option: " << arg << std::endl;
@@ -64,10 +70,9 @@ int main(int argc, char** argv)
         }
     }
 
-    assert(messageType != "livox"); // "Only pointcloud2 is supported at this time.";
-
     std::cout << "Processing directory: " << directory << " creating bag " << output_bag << std::endl;
     std::cout << "Number of lines: " << number_of_lines << std::endl;
+    std::cout << "Number of points: " << number_of_points << std::endl;
 
     // get list of files in directory
     std::vector<std::string> files_imu;
@@ -82,7 +87,7 @@ int main(int argc, char** argv)
         {
             const std::string fn = entry.path().filename().string();
             if (fn.find("lidar") != std::string::npos)
-            files_laz.push_back(entry.path());
+                files_laz.push_back(entry.path());
         }
     }
 
@@ -98,7 +103,7 @@ int main(int argc, char** argv)
         for (const auto& [ts, ang, acc] : data)
         {
             if (ts == 0)
-            continue;
+                continue;
             sensor_msgs::msg::Imu imu;
             imu.header.frame_id = "livox";
             imu.header.stamp = GetRosTimeSecond(ts);
@@ -129,7 +134,7 @@ int main(int argc, char** argv)
                     last_ts = p.timestamp;
                 }
                 points.push_back(p);
-                if (points.size() > num_point && last_ts && last_ts > 0)
+                if (points.size() > number_of_points && last_ts && last_ts > 0)
                 {
                     sensor_msgs::msg::PointCloud2 pc2 = CreatePointcloudMessage(points);
                     pc2.header.stamp = GetRosTimeSecond(*last_ts);
@@ -141,46 +146,53 @@ int main(int argc, char** argv)
             }
         }
     }
+    else if (messageType == "livox")
+    {
+        livox_ros_driver2::msg::CustomMsg custom_msg;
+        custom_msg.lidar_id = 192;
+        custom_msg.header.frame_id = "livox";
+        custom_msg.rsvd[0] = 0;
+        custom_msg.rsvd[1] = 0;
+        custom_msg.rsvd[2] = 0;
+        custom_msg.points.reserve(number_of_points);
 
-    //    livox_ros_driver::CustomMsg custom_msg;
-    //    custom_msg.lidar_id = 192;
-    //    custom_msg.header.frame_id = "livox_frame";
-    //    custom_msg.rsvd[0] = 0;
-    //    custom_msg.rsvd[1] = 0;
-    //    custom_msg.rsvd[2] = 0;
-    //    custom_msg.points.reserve(num_point);
-    //
-    //    int line_id = 0;
-    //    for (auto &pcName: files_laz) {
-    //        auto points = mandeye::load(pcName);
-    //        for (auto p: points) {
-    //            if (p.timestamp == 0)
-    //                continue;
-    //            p.timestamp += time_start;
-    //            if (custom_msg.points.size() == 0) {
-    //                custom_msg.header.stamp.fromSec(p.timestamp);
-    //                custom_msg.timebase = p.timestamp * 1e9;
-    //            }
-    //            livox_ros_driver::CustomPoint cp;
-    //            cp.tag = 0;
-    //            cp.offset_time = p.timestamp * 1e9 - custom_msg.timebase;
-    //            cp.reflectivity = p.intensity;
-    //            cp.x = p.point.x();
-    //            cp.y = p.point.y();
-    //            cp.z = p.point.z();
-    //            cp.line = line_id;
-    //            custom_msg.points.push_back(cp);
-    //            if (line_id++ >= line_count) {
-    //                line_id = 0;
-    //                if (custom_msg.points.size() > num_point) {
-    //                    custom_msg.point_num = custom_msg.points.size();
-    //                    bag.write("/livox/lidar", custom_msg.header.stamp, custom_msg);
-    //                    custom_msg.points.clear();
-    //                }
-    //            }
-    //        }
-    //    }
-    //
+        int line_id = 0;
+        for (auto& pcName : files_laz)
+        {
+            auto points = mandeye::load(pcName);
+            for (auto p : points)
+            {
+                if (!p.timestamp) continue;
+                
+                if (!custom_msg.points.size())
+                {
+                    custom_msg.header.stamp = GetRosTimeSecond(p.timestamp);
+                    custom_msg.timebase = p.timestamp * 1e9;
+                }
+
+                livox_ros_driver2::msg::CustomPoint cp;
+                cp.tag = 0;
+                cp.offset_time = p.timestamp * 1e9 - custom_msg.timebase;
+                cp.reflectivity = p.intensity;
+                cp.x = p.point.x();
+                cp.y = p.point.y();
+                cp.z = p.point.z();
+                cp.line = line_id;
+
+                custom_msg.points.push_back(cp);
+
+                line_id = (line_id + 1) % number_of_lines;
+
+                if (custom_msg.points.size() >= number_of_points)
+                {
+                    custom_msg.point_num = custom_msg.points.size();
+                    bag.write(custom_msg, "/livox/lidar", custom_msg.header.stamp);
+                    custom_msg.points.clear();
+                }
+            }
+        }
+    }
+
     bag.close();
     return 0;
 }

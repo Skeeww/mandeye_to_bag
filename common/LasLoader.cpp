@@ -29,7 +29,7 @@ std::vector<mandeye::Point> mandeye::load(const std::string &lazFile) {
     }
 
 
-    for (int j = 0; j < header->number_of_point_records; j++) {
+    for (unsigned int j = 0; j < header->number_of_point_records; j++) {
         if (laszip_read_point(laszip_reader)) {
             fprintf(stderr, "DLL ERROR: reading point %u\n", j);
             std::abort();
@@ -145,7 +145,7 @@ bool mandeye::saveLaz(const std::string& filename, const std::vector<mandeye::Po
 	laszip_I64 p_count = 0;
 	laszip_F64 coordinates[3];
 
-	for(int i = 0; i < buffer.size(); i++)
+	for(std::size_t i = 0; i < buffer.size(); i++)
 	{
 
 		const auto& p = buffer.at(i);
@@ -159,13 +159,13 @@ bool mandeye::saveLaz(const std::string& filename, const std::vector<mandeye::Po
 		coordinates[2] = p.point[2];
 		if(laszip_set_coordinates(laszip_writer, coordinates))
 		{
-			fprintf(stderr, "DLL ERROR: setting coordinates for point %I64d\n", p_count);
+			fprintf(stderr, "DLL ERROR: setting coordinates for point %ld\n", p_count);
 			return false;
 		}
 
 		if(laszip_write_point(laszip_writer))
 		{
-			fprintf(stderr, "DLL ERROR: writing point %I64d\n", p_count);
+			fprintf(stderr, "DLL ERROR: writing point %ld\n", p_count);
 			return false;
 		}
 	}
@@ -176,7 +176,7 @@ bool mandeye::saveLaz(const std::string& filename, const std::vector<mandeye::Po
 		return false;
 	}
 
-	fprintf(stderr, "successfully written %I64d points\n", p_count);
+	fprintf(stderr, "successfully written %ld points\n", p_count);
 
 	// close the writer
 

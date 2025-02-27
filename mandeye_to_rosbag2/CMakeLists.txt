@@ -4,7 +4,7 @@ project(mandeye_to_rosbag2)
 find_package(ament_cmake QUIET)
 if(ament_cmake_FOUND)
 if (CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-    add_compile_options(-Wall -Wextra -Wpedantic)
+    add_compile_options(-Wall -Wextra -Wpedantic -march=native -O3)
 endif ()
 
 set (CMAKE_CXX_STANDARD 17)
@@ -65,6 +65,9 @@ target_compile_features(log_cloud PUBLIC c_std_99 cxx_std_17)  # Require C99 and
 install(TARGETS log_cloud DESTINATION lib/${PROJECT_NAME})
 
 ament_package()
+
+find_package(livox_ros_driver2 REQUIRED)
+ament_target_dependencies(mandeye_to_rosbag2_node livox_ros_driver2)
 
 else()
   message("ament_cmake not found so skipping this package")

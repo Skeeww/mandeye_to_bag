@@ -27,7 +27,6 @@ namespace mandeye
 
         // optional
         const bool hasImuIdColumn = contains("imuId");
-        const bool hasUnixTimestampColumn = contains("timestampUnix");
 
         // check if legacy
         bool is_legacy = true;
@@ -50,12 +49,11 @@ namespace mandeye
                 int imu_id = -1;
                 if (hasImuIdColumn)
                 {
-                    int imu_id = row["imuId"].get<int>();
+                    imu_id = row["imuId"].get<int>();
                 }
                 if (imu_id < 0 || imuToUse == imu_id)
                 {
                     double timestamp = row["timestamp"].get<double>();
-                    double timestampUnix = row["timestampUnix"].get<double>();
                     ImuAngularVelocity gyr;
                     gyr[0] = row["gyroX"].get<double>();
                     gyr[1] = row["gyroY"].get<double>();
